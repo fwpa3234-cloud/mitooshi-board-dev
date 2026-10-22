@@ -400,7 +400,6 @@
 <header class="topbar">
   <div class="brand">みとおしボード
     <small>
-      <select id="classroomSelect" style="font-size:12px; padding:2px 4px; border-radius:6px;"></select>
       <button type="button" id="btnChangeName" class="ghost small" style="padding:2px 6px; font-size:11px;" title="表示名（最終更新者として表示される名前）を変更します">👤</button>
     </small>
   </div>
@@ -480,14 +479,6 @@
         <select id="templateSelect"></select>
         <button class="small" id="btnSaveAsTpl" title="今の内容を、新しい名前のテンプレートとして保存します">＋ 名前を付けて保存</button>
         <button class="small" id="btnRenameTpl" title="選んだテンプレートの名前を変更します">名前を変更</button>
-      </div>
-      <div class="group">
-        <label>共有フォーマット集（全教室）<button type="button" class="help-btn" id="helpSharedBtn" title="説明を見る">？</button></label>
-        <select id="sharedTemplateSelect"><option value="">（選択してください）</option></select>
-        <button class="small" id="btnLoadSharedTpl" title="選んだ共有フォーマットを、この教室に読み込みます">呼び出す</button>
-        <button class="small" id="btnRenameSharedTpl" title="選んだ共有フォーマットの名前を修正します">名前を修正</button>
-        <button class="small danger" id="btnDeleteSharedTpl" title="選んだ共有フォーマットを削除します">削除</button><button type="button" class="help-btn" id="helpDeleteSharedBtn" title="説明を見る">？</button>
-        <button class="small" id="btnPublishSharedTpl" title="今のフォーマットを、全教室が使える共有フォーマット集に登録します">＋ 共有に登録</button>
       </div>
       <div class="group">
         <label class="upload-btn" style="margin:0; padding:8px 14px; display:inline-block;">
@@ -575,16 +566,6 @@
 
   // 入室用の合言葉。必要に応じて変更してください（全教室共通で1つでOK）
   const APP_PASSPHRASE = "asiz2026";
-
-  // 教室ごとのスケジュール表の一覧（プルダウンに表示される名前と、保存先を区別するID）
-  const CLASSROOMS = [
-    { id: "komatsugawa", name: "Asiz小松川教室" },
-    { id: "koiwa",       name: "Asiz小岩教室" },
-    { id: "shinozaki",   name: "Asiz篠崎教室" },
-    { id: "ichinoe",     name: "Asiz一之江教室" },
-    { id: "mizue",       name: "Asiz瑞江教室" },
-    { id: "funabori",    name: "Asiz船堀教室" }
-  ];
 
   // ============================================================
   // トースト通知（画面右下にエラー・お知らせを表示）
@@ -749,7 +730,7 @@
   let selectionMode = false;
   let selectedForDeletion = new Set();
   let activeCategoryFilter = "all"; // "all" | "uncat" | カテゴリ名
-  let currentClassroomId = localStorage.getItem("mitooshi_classroom") || (CLASSROOMS[0] && CLASSROOMS[0].id);
+  const currentClassroomId = "shinozaki"; // このコピーはAsiz篠崎教室のデータのみを使用します（複数教室切り替え機能は削除済み）
   let unsubBoard = null;
   let unsubLibrary = null;
   let unsubImages = null;
@@ -939,7 +920,6 @@
       library = Object.assign(defaultLibrary(), data);
       rebuildImageIndexFromLibrary();
       renderSidebar();
-      renderSharedTemplateSelect();
     }, err => { console.error(err); });
   }
 
@@ -1565,7 +1545,6 @@
     const ids = Object.keys(state.templates);
     if (ids.length <= 1){ showToast("最後の1つのテンプレートは削除できません。", "error"); return; }
     if (!confirm("このテンプレートを削除します。よろしいですか？")) return;
-    const deletedTpl = state.templates[state.activeTemplateId];
     delete state.templates[state.activeTemplateId];
     const remaining = Object.keys(state.templates);
     state.activeTemplateId = remaining.includes("simple") ? "simple" : remaining[0];
@@ -1573,31 +1552,15 @@
     renderTemplateSelect();
     syncCounts();
     renderAll();
-    const sharedId = deletedTpl && deletedTpl.sharedId;
-    const sharedEntry = sharedId && library.templates && library.templates[sharedId];
-    if (sharedEntry){
-      if (confirm(`共有フォーマット集に登録されている「${sharedEntry.name}」も、全教室から呼び出せなくなるよう削除しますか？`)){
-        delete library.templates[sharedId];
-        scheduleSaveLibrary();
-        renderSharedTemplateSelect();
-        showToast(`「${sharedEntry.name}」を共有フォーマット集からも削除しました。`, "success");
-      }
-    }
   });
   document.getElementById("helpImagesBtn").addEventListener("click", () => {
-    alert("【画像一覧とは】\n\n絵カードの画像を集めた一覧です。全教室で共有されます。\n\n・「＋画像を追加」で新しい画像を登録できます（全教室で使えるようになります）\n・画像をクリックして選び、配置したいマスをクリックすると、そのマスに画像が入ります（ドラッグ＆ドロップでも配置できます）\n・「選択して削除・分類」で、複数の画像をまとめて削除したり、カテゴリに分けたりできます\n・画像一覧から削除しても、すでにマスに配置済みの画像はそのまま残ります");
+    alert("【画像一覧とは】\n\n絵カードの画像を集めた一覧です。\n\n・「＋画像を追加」で新しい画像を登録できます\n・画像をクリックして選び、配置したいマスをクリックすると、そのマスに画像が入ります（ドラッグ＆ドロップでも配置できます）\n・「選択して削除・分類」で、複数の画像をまとめて削除したり、カテゴリに分けたりできます\n・画像一覧から削除しても、すでにマスに配置済みの画像はそのまま残ります");
   });
   document.getElementById("helpTplBtn").addEventListener("click", () => {
-    alert("【テンプレートとは】\n\nこの教室だけで使う、スケジュール表の台紙（レイアウト）です。\n\n・行や列、セルの中身を自由に編集できます\n・保存すると、この教室のデータとして残ります\n・複数のテンプレートを作って切り替えられます（例：平日用／土曜用）\n・他の教室のテンプレートには影響しません");
-  });
-  document.getElementById("helpSharedBtn").addEventListener("click", () => {
-    alert("【共有フォーマット集とは】\n\n全教室で使い回せるように登録した、テンプレートのコピーです。\n\n・「＋共有に登録」を押すと、今のテンプレートのコピーがここに追加されます\n・他の教室はここから「呼び出す」ことで、自分の教室に取り込んで使えます\n・テンプレート本体を編集しても、登録済みの共有フォーマットには自動反映されません（更新したい場合は再登録してください）\n・「名前を修正」「削除」で、共有フォーマット集の登録そのものを操作できます");
-  });
-  document.getElementById("helpDeleteSharedBtn").addEventListener("click", () => {
-    alert("【共有フォーマット集の「削除」とは】\n\n選んだ共有フォーマットの登録を、全教室から呼び出せないように消します。\n\n・プルダウンで対象を選んでから押してください\n・全教室が対象です。この教室だけでなく、他の教室もその共有フォーマットを呼び出せなくなります\n・すでに各教室に「呼び出す」で取り込み済みのテンプレートには影響しません（取り込んだコピーはそのまま残ります）\n・取り消せないので、よく確認してから削除してください");
+    alert("【テンプレートとは】\n\nスケジュール表の台紙（レイアウト）です。\n\n・行や列、セルの中身を自由に編集できます\n・保存すると、テンプレートとして残ります\n・複数のテンプレートを作って切り替えられます（例：平日用／土曜用）");
   });
   document.getElementById("helpDeleteTplBtn").addEventListener("click", () => {
-    alert("【「このテンプレートを削除」とは】\n\n今開いている、この教室のテンプレートを削除します。\n\n・この教室だけに影響し、他の教室のテンプレートは消えません\n・最後の1つのテンプレートは削除できません\n・このテンプレートを共有フォーマット集に登録・または呼び出したことがある場合は、削除時に共有フォーマット集側も合わせて削除するか確認が出ます\n・取り消せないので、よく確認してから削除してください");
+    alert("【「このテンプレートを削除」とは】\n\n今選んでいるテンプレートを削除します。\n\n・最後の1つのテンプレートは削除できません\n・取り消せないので、よく確認してから削除してください");
   });
 
   document.getElementById("btnSaveAsTpl").addEventListener("click", () => {
@@ -1630,100 +1593,6 @@
     syncCounts();
     renderAll();
     showToast(`テンプレート「${clone.name}」として保存しました。`, "success");
-  });
-
-  // ---------- 共有フォーマット集（全教室共通） ----------
-  function renderSharedTemplateSelect(){
-    const sel = document.getElementById("sharedTemplateSelect");
-    if (!sel) return;
-    const templates = library.templates || {};
-    const ids = Object.keys(templates);
-    const prevValue = sel.value;
-    if (!ids.length){
-      sel.innerHTML = `<option value="">（まだ登録がありません）</option>`;
-    } else {
-      sel.innerHTML = `<option value="">（選択してください）</option>` + ids.map(id => {
-        const t = templates[id];
-        const who = t.updatedBy ? `（${t.updatedBy}）` : "";
-        return `<option value="${id}">${t.name}${who}</option>`;
-      }).join("");
-      if (ids.indexOf(prevValue) !== -1) sel.value = prevValue;
-    }
-  }
-
-  document.getElementById("btnPublishSharedTpl").addEventListener("click", () => {
-    const tpl = activeTpl();
-    const defaultName = tpl.name || "テンプレート";
-    const name = prompt("共有フォーマット集に登録する名前を入力してください（全教室から呼び出せるようになります）", defaultName);
-    if (!name || !name.trim()) return;
-    const clone = JSON.parse(JSON.stringify(tpl));
-    clone.name = name.trim();
-    clone.updatedBy = displayName || "スタッフ";
-    clone.updatedAt = Date.now();
-    if (!library.templates) library.templates = {};
-    const id = "shared_" + Date.now();
-    library.templates[id] = clone;
-    tpl.sharedId = id;
-    scheduleSave();
-    scheduleSaveLibrary();
-    renderSharedTemplateSelect();
-    showToast(`「${clone.name}」を共有フォーマット集に登録しました。`, "success");
-  });
-
-  document.getElementById("btnRenameSharedTpl").addEventListener("click", () => {
-    const sel = document.getElementById("sharedTemplateSelect");
-    const id = sel.value;
-    const shared = library.templates && library.templates[id];
-    if (!shared){ showToast("名前を修正する共有フォーマットを選択してください。", "error"); return; }
-    const newName = prompt("新しい名前を入力してください", shared.name || "");
-    if (newName === null) return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-    shared.name = trimmed;
-    shared.updatedBy = displayName || "スタッフ";
-    shared.updatedAt = Date.now();
-    scheduleSaveLibrary();
-    renderSharedTemplateSelect();
-    showToast(`名前を「${trimmed}」に修正しました。`, "success");
-  });
-
-  document.getElementById("btnDeleteSharedTpl").addEventListener("click", () => {
-    const sel = document.getElementById("sharedTemplateSelect");
-    const id = sel.value;
-    const shared = library.templates && library.templates[id];
-    if (!shared){ showToast("削除する共有フォーマットを選択してください。", "error"); return; }
-    if (!confirm(`共有フォーマット「${shared.name}」を削除します。全教室から呼び出せなくなります。よろしいですか？`)) return;
-    delete library.templates[id];
-    scheduleSaveLibrary();
-    renderSharedTemplateSelect();
-    showToast(`「${shared.name}」を共有フォーマット集から削除しました。`, "success");
-  });
-
-  document.getElementById("btnLoadSharedTpl").addEventListener("click", () => {
-    const sel = document.getElementById("sharedTemplateSelect");
-    const id = sel.value;
-    const shared = library.templates && library.templates[id];
-    if (!shared){ showToast("呼び出す共有フォーマットを選択してください。", "error"); return; }
-    const existingId = Object.keys(state.templates).find(tid => state.templates[tid].sharedId === id);
-    if (existingId){
-      state.activeTemplateId = existingId;
-      scheduleSave();
-      renderTemplateSelect();
-      syncCounts();
-      renderAll();
-      showToast(`すでに取り込み済みの「${state.templates[existingId].name}」に切り替えました。`, "success");
-      return;
-    }
-    const clone = JSON.parse(JSON.stringify(shared));
-    clone.sharedId = id;
-    const newId = "tpl_" + Date.now();
-    state.templates[newId] = clone;
-    state.activeTemplateId = newId;
-    scheduleSave();
-    renderTemplateSelect();
-    syncCounts();
-    renderAll();
-    showToast(`共有フォーマット「${clone.name}」をこの教室に読み込みました。`, "success");
   });
 
   // ---------- Excel import ----------
@@ -2263,17 +2132,12 @@
   document.getElementById("btnPrintFloating").addEventListener("click", printBoard);
 
   document.getElementById("btnReset").addEventListener("click", async () => {
-    if (!confirm("この教室（" + currentClassroomName() + "）のスケジュール表の入力内容・取り込んだテンプレートを消去して初期状態に戻します。画像一覧（全教室共有）は消去されません。よろしいですか？この操作は取り消せません。")) return;
+    if (!confirm("スケジュール表の入力内容・取り込んだテンプレートを消去して初期状態に戻します。画像一覧は消去されません。よろしいですか？この操作は取り消せません。")) return;
     state = defaultState();
     selectedImageId = null;
     await doSave();
     await init();
   });
-
-  function currentClassroomName(){
-    const c = CLASSROOMS.find(x => x.id === currentClassroomId);
-    return c ? c.name : currentClassroomId;
-  }
 
   async function init(){
     document.getElementById("fitSelect").value = state.imageFit || "cover";
@@ -2281,7 +2145,6 @@
     document.getElementById("fontSizeValue").textContent = (state.textFontSize || 13) + "px";
     syncCounts();
     renderTemplateSelect();
-    renderSharedTemplateSelect();
     renderSidebar();
     renderAll();
     updateOrientation();
@@ -2289,26 +2152,6 @@
     renderUpdateInfo();
     updateUndoButton();
   }
-
-  // 教室セレクターの準備
-  function populateClassroomSelect(){
-    const sel = document.getElementById("classroomSelect");
-    sel.innerHTML = CLASSROOMS.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-    sel.value = currentClassroomId;
-  }
-  document.getElementById("classroomSelect").addEventListener("change", async (e) => {
-    currentClassroomId = e.target.value;
-    localStorage.setItem("mitooshi_classroom", currentClassroomId);
-    showLoading(currentClassroomName() + "のスケジュール表を読み込んでいます…");
-    try {
-      await loadState();
-    } finally {
-      hideLoading();
-    }
-    subscribeBoard();
-    selectedImageId = null;
-    await init();
-  });
 
   // ---------- 表示名（最終更新者として表示する名前） ----------
   function ensureDisplayName(){
@@ -2333,7 +2176,6 @@
     try {
       ensureDisplayName();
       await ensureSignedIn();
-      populateClassroomSelect();
       await Promise.all([loadLibrary(), loadState()]);
       rebuildImageIndexFromLibrary();
       subscribeLibrary();
