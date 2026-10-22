@@ -712,6 +712,8 @@
   let boardHistory = []; // 「元に戻す」用：直前までの保存済み状態を古い順に保持
   let lastCommittedState = null; // 直近にクラウドへ保存された内容（自分・他端末どちらの保存も含む）
   const MAX_HISTORY = 20;
+  const SAVED_EDIT_TPL_ID = "__savedEdit"; // 「作成済み」を呼び出して編集するための一時バッファ（テンプレート一覧には表示しない）
+  let activeSavedBoardId = null; // 現在このバッファで編集中の「作成済み」の元ID（nullなら通常のテンプレート編集）
 
   function activeTpl(){ return state.templates[state.activeTemplateId]; }
   function cellKey(r,c){ return r + "_" + c; }
@@ -738,6 +740,11 @@
     opts = opts || {};
     if (!dbAvailable) return;
     updateStorageMeter("saving");
+    if (activeSavedBoardId && state.templates[SAVED_EDIT_TPL_ID] && state.savedBoards && state.savedBoards[activeSavedBoardId]){
+      const edited = JSON.parse(JSON.stringify(state.templates[SAVED_EDIT_TPL_ID]));
+      delete edited.__savedBoardId;
+      state.savedBoards[activeSavedBoardId] = edited;
+    }
     try {
       await boardDocRef(currentClassroomId).set(state);
       if (!opts.skipHistory && lastCommittedState){
@@ -822,6 +829,7 @@
     if (!state.savedBoards) state.savedBoards = {};
     if (state._migratedSavedBoards) return;
     Object.keys(state.templates).forEach(id => {
+      if (id === SAVED_EDIT_TPL_ID) return; // 「作成済み」編集用の一時バッファは移行対象外
       const tpl = state.templates[id];
       if (tplHasContent(tpl)){
         const newId = "saved_" + id;
@@ -1500,19 +1508,30 @@
     const sel = document.getElementById("templateSelect");
     sel.innerHTML = "";
     Object.keys(state.templates).forEach(id => {
+      if (id === SAVED_EDIT_TPL_ID) return; // 「作成済み」編集中の一時バッファはテンプレート一覧に出さない
       const opt = document.createElement("option");
       opt.value = id; opt.textContent = state.templates[id].name;
       if (id === state.activeTemplateId) opt.selected = true;
       sel.appendChild(opt);
     });
+    const editingSaved = state.activeTemplateId === SAVED_EDIT_TPL_ID && !!state.templates[SAVED_EDIT_TPL_ID];
+    if (editingSaved){
+      const opt = document.createElement("option");
+      opt.value = SAVED_EDIT_TPL_ID;
+      opt.textContent = `（作成済み）${state.templates[SAVED_EDIT_TPL_ID].name}`;
+      opt.selected = true;
+      sel.appendChild(opt);
+    }
     const tpl = activeTpl();
     const simpleCtrl = document.getElementById("simpleControls");
     const importedActions = document.getElementById("importedActions");
     const tplMeta = document.getElementById("tplMeta");
+    const btnDeleteTpl = document.getElementById("btnDeleteTpl");
     importedActions.style.display = "flex"; // 名前の変更・削除はどの種類のテンプレートでも可能にする
+    if (btnDeleteTpl) btnDeleteTpl.textContent = editingSaved ? "編集を終了" : "このテンプレートを削除";
     if (tpl.type === "simple"){
       simpleCtrl.style.display = "flex";
-      tplMeta.textContent = "";
+      tplMeta.textContent = editingSaved ? "「作成済み」を編集中（変更は自動でこの「作成済み」に保存されます）" : "";
     } else {
       simpleCtrl.style.display = "none";
       tplMeta.textContent = `${tpl.cols}列 × ${tpl.rows}行（Excelから取り込み）`;
@@ -1526,6 +1545,7 @@
       return;
     }
     state.activeTemplateId = e.target.value;
+    if (e.target.value !== SAVED_EDIT_TPL_ID) activeSavedBoardId = null;
     scheduleSave();
     renderTemplateSelect();
     syncCounts();
@@ -1581,14 +1601,15 @@
     const saved = state.savedBoards && state.savedBoards[id];
     if (!saved){ showToast("呼び出す「作成済み」を選択してください。", "error"); return; }
     const clone = JSON.parse(JSON.stringify(saved));
-    const newId = "tpl_" + Date.now();
-    state.templates[newId] = clone;
-    state.activeTemplateId = newId;
+    clone.__savedBoardId = id;
+    state.templates[SAVED_EDIT_TPL_ID] = clone;
+    state.activeTemplateId = SAVED_EDIT_TPL_ID;
+    activeSavedBoardId = id;
     scheduleSave();
     renderTemplateSelect();
     syncCounts();
     renderAll();
-    showToast(`「${clone.name}」を呼び出しました。`, "success");
+    showToast(`「${clone.name}」を呼び出しました。変更は自動でこの「作成済み」に保存されます。`, "success");
   });
 
   document.getElementById("btnRenameSavedBoard").addEventListener("click", () => {
@@ -1619,15 +1640,27 @@
   });
 
   document.getElementById("helpSavedBtn").addEventListener("click", () => {
-    alert("【作成済みとは】\n\nテンプレートに文字や画像を入力して完成させたスケジュール表を、名前をつけて保存したものです。\n\n・「＋ 作成済みとして保存」で、今の内容（文字・画像）をここに保存できます\n・ここから「呼び出す」と、保存した内容がそのまま読み込まれます\n・テンプレート（型）とは別の一覧なので、完成したものだけをすぐに探せます");
+    alert("【作成済みとは】\n\nテンプレートに文字や画像を入力して完成させたスケジュール表を、名前をつけて保存したものです。\n\n・「＋ 作成済みとして保存」で、今の内容（文字・画像）をここに保存できます\n・ここから「呼び出す」と、保存した内容が読み込まれます（テンプレート一覧には追加されません）\n・呼び出した後に内容を変更すると、自動でこの「作成済み」に上書き保存されます\n・テンプレート（型）とは別の一覧なので、完成したものだけをすぐに探せます");
   });
 
   document.getElementById("btnDeleteTpl").addEventListener("click", () => {
-    const ids = Object.keys(state.templates);
+    if (state.activeTemplateId === SAVED_EDIT_TPL_ID){
+      delete state.templates[SAVED_EDIT_TPL_ID];
+      activeSavedBoardId = null;
+      const remaining = Object.keys(state.templates).filter(id => id !== SAVED_EDIT_TPL_ID);
+      state.activeTemplateId = remaining.includes("simple") ? "simple" : remaining[0];
+      scheduleSave();
+      renderTemplateSelect();
+      syncCounts();
+      renderAll();
+      showToast("「作成済み」の編集を終了しました。", "success");
+      return;
+    }
+    const ids = Object.keys(state.templates).filter(id => id !== SAVED_EDIT_TPL_ID);
     if (ids.length <= 1){ showToast("最後の1つのテンプレートは削除できません。", "error"); return; }
     if (!confirm("このテンプレートを削除します。よろしいですか？")) return;
     delete state.templates[state.activeTemplateId];
-    const remaining = Object.keys(state.templates);
+    const remaining = Object.keys(state.templates).filter(id => id !== SAVED_EDIT_TPL_ID);
     state.activeTemplateId = remaining.includes("simple") ? "simple" : remaining[0];
     scheduleSave();
     renderTemplateSelect();
@@ -2221,6 +2254,7 @@
   });
 
   async function init(){
+    activeSavedBoardId = (state.templates[SAVED_EDIT_TPL_ID] && state.templates[SAVED_EDIT_TPL_ID].__savedBoardId) || null;
     document.getElementById("fitSelect").value = state.imageFit || "cover";
     document.getElementById("fontSizeRange").value = state.textFontSize || 13;
     document.getElementById("fontSizeValue").textContent = (state.textFontSize || 13) + "px";
