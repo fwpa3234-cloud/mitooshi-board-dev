@@ -479,6 +479,14 @@
         <select id="templateSelect"></select>
         <button class="small" id="btnSaveAsTpl" title="今の内容を、新しい名前のテンプレートとして保存します">＋ 名前を付けて保存</button>
         <button class="small" id="btnRenameTpl" title="選んだテンプレートの名前を変更します">名前を変更</button>
+        <button class="small" id="btnPublishSavedBoard" title="今入力されている文字・画像の内容を「作成済み」として保存します">＋ 作成済みとして保存</button>
+      </div>
+      <div class="group">
+        <label>作成済み（保存した内容）<button type="button" class="help-btn" id="helpSavedBtn" title="説明を見る">？</button></label>
+        <select id="savedBoardSelect"><option value="">（選択してください）</option></select>
+        <button class="small" id="btnLoadSavedBoard" title="選んだ「作成済み」を呼び出します">呼び出す</button>
+        <button class="small" id="btnRenameSavedBoard" title="選んだ「作成済み」の名前を変更します">名前を変更</button>
+        <button class="small danger" id="btnDeleteSavedBoard" title="選んだ「作成済み」を削除します">削除</button>
       </div>
       <div class="group">
         <label class="upload-btn" style="margin:0; padding:8px 14px; display:inline-block;">
@@ -700,15 +708,15 @@
       templates: {
         simple: { name: "シンプルグリッド（手動設定）", type: "simple", rows: 4, cols: 4,
           colWidths: [130,130,130,130], rowHeights: [100,100,100,100], cells: {} }
-      }
+      },
+      savedBoards: {} // 文字・画像を入力して保存した「作成済み」の一覧
     };
   }
   function defaultLibrary(){
     return {
       imageOrder: presetImages.map((p,i) => "preset_"+i),
       categories: [],
-      imageCategory: {},
-      templates: {} // 全教室共有のフォーマット集
+      imageCategory: {}
     };
   }
 
@@ -846,6 +854,38 @@
     while (tpl.rowHeights.length > tpl.rows) tpl.rowHeights.pop();
   }
 
+  // テンプレート一覧のうち、すでに文字・画像が入力済みのものを「作成済み」へ移す（初回のみ実行）
+  function tplHasContent(tpl){
+    return !!(tpl.cells && Object.keys(tpl.cells).some(k => {
+      const c = tpl.cells[k];
+      if (!c) return false;
+      if (c.type === "image") return !!c.imageId;
+      if (c.type === "text") return (c.text || "").trim() !== "";
+      return false;
+    }));
+  }
+  function migrateFilledTemplatesToSavedBoards(){
+    if (!state.savedBoards) state.savedBoards = {};
+    if (state._migratedSavedBoards) return;
+    Object.keys(state.templates).forEach(id => {
+      const tpl = state.templates[id];
+      if (tplHasContent(tpl)){
+        const newId = "saved_" + id;
+        state.savedBoards[newId] = JSON.parse(JSON.stringify(tpl));
+        delete state.templates[id];
+      }
+    });
+    if (!Object.keys(state.templates).length){
+      state.templates.simple = { name: "シンプルグリッド（手動設定）", type: "simple", rows: 4, cols: 4,
+        colWidths: [130,130,130,130], rowHeights: [100,100,100,100], cells: {} };
+    }
+    if (!state.templates[state.activeTemplateId]){
+      state.activeTemplateId = Object.keys(state.templates)[0];
+    }
+    state._migratedSavedBoards = true;
+    scheduleSave();
+  }
+
   // 教室のスケジュール表を読み込む（初回のみ）。無ければ初期状態をクラウドに作成する。
   async function loadState(){
     boardHistory = [];
@@ -865,6 +905,7 @@
       showToast("スケジュール表の読み込みに失敗しました。通信環境をご確認ください。", "error");
     }
     Object.values(state.templates).forEach(migrateSimpleTemplate);
+    migrateFilledTemplatesToSavedBoards();
     lastCommittedState = JSON.parse(JSON.stringify(state));
     updateUndoButton();
   }
@@ -887,6 +928,7 @@
       updateUndoButton();
       state = data;
       Object.values(state.templates).forEach(migrateSimpleTemplate);
+      migrateFilledTemplatesToSavedBoards();
       init();
       showToast("ほかの端末での変更を反映しました。", "success");
     }, err => { console.error(err); });
@@ -1541,6 +1583,96 @@
     const name = prompt("テンプレート名を入力してください", tpl.name);
     if (name && name.trim()){ tpl.name = name.trim(); scheduleSave(); renderTemplateSelect(); }
   });
+
+  // ---------- 作成済み（文字・画像を入力して保存したもの） ----------
+  function renderSavedBoardSelect(){
+    const sel = document.getElementById("savedBoardSelect");
+    if (!sel) return;
+    const boards = state.savedBoards || {};
+    const ids = Object.keys(boards);
+    const prevValue = sel.value;
+    if (!ids.length){
+      sel.innerHTML = `<option value="">（まだ保存されたものがありません）</option>`;
+    } else {
+      sel.innerHTML = `<option value="">（選択してください）</option>` + ids.map(id => {
+        const b = boards[id];
+        const who = b.updatedBy ? `（${b.updatedBy}）` : "";
+        return `<option value="${id}">${b.name}${who}</option>`;
+      }).join("");
+      if (ids.indexOf(prevValue) !== -1) sel.value = prevValue;
+    }
+  }
+
+  document.getElementById("btnPublishSavedBoard").addEventListener("click", () => {
+    const tpl = activeTpl();
+    if (!tplHasContent(tpl)){
+      showToast("文字や画像が入力されていません。先に入力してから保存してください。", "error");
+      return;
+    }
+    const defaultName = tpl.name || "作成済み";
+    const name = prompt("「作成済み」として保存する名前を入力してください", defaultName);
+    if (!name || !name.trim()) return;
+    const clone = JSON.parse(JSON.stringify(tpl));
+    clone.name = name.trim();
+    clone.updatedBy = displayName || "スタッフ";
+    clone.updatedAt = Date.now();
+    const id = "saved_" + Date.now();
+    if (!state.savedBoards) state.savedBoards = {};
+    state.savedBoards[id] = clone;
+    scheduleSave();
+    renderSavedBoardSelect();
+    showToast(`「${clone.name}」を作成済みとして保存しました。`, "success");
+  });
+
+  document.getElementById("btnLoadSavedBoard").addEventListener("click", () => {
+    const sel = document.getElementById("savedBoardSelect");
+    const id = sel.value;
+    const saved = state.savedBoards && state.savedBoards[id];
+    if (!saved){ showToast("呼び出す「作成済み」を選択してください。", "error"); return; }
+    const clone = JSON.parse(JSON.stringify(saved));
+    const newId = "tpl_" + Date.now();
+    state.templates[newId] = clone;
+    state.activeTemplateId = newId;
+    scheduleSave();
+    renderTemplateSelect();
+    syncCounts();
+    renderAll();
+    showToast(`「${clone.name}」を呼び出しました。`, "success");
+  });
+
+  document.getElementById("btnRenameSavedBoard").addEventListener("click", () => {
+    const sel = document.getElementById("savedBoardSelect");
+    const id = sel.value;
+    const saved = state.savedBoards && state.savedBoards[id];
+    if (!saved){ showToast("名前を変更する「作成済み」を選択してください。", "error"); return; }
+    const newName = prompt("新しい名前を入力してください", saved.name || "");
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    saved.name = trimmed;
+    saved.updatedBy = displayName || "スタッフ";
+    saved.updatedAt = Date.now();
+    scheduleSave();
+    renderSavedBoardSelect();
+    showToast(`名前を「${trimmed}」に変更しました。`, "success");
+  });
+
+  document.getElementById("btnDeleteSavedBoard").addEventListener("click", () => {
+    const sel = document.getElementById("savedBoardSelect");
+    const id = sel.value;
+    const saved = state.savedBoards && state.savedBoards[id];
+    if (!saved){ showToast("削除する「作成済み」を選択してください。", "error"); return; }
+    if (!confirm(`「${saved.name}」を削除します。よろしいですか？この操作は取り消せません。`)) return;
+    delete state.savedBoards[id];
+    scheduleSave();
+    renderSavedBoardSelect();
+    showToast(`「${saved.name}」を削除しました。`, "success");
+  });
+
+  document.getElementById("helpSavedBtn").addEventListener("click", () => {
+    alert("【作成済みとは】\n\nテンプレートに文字や画像を入力して完成させたスケジュール表を、名前をつけて保存したものです。\n\n・「＋ 作成済みとして保存」で、今の内容（文字・画像）をここに保存できます\n・ここから「呼び出す」と、保存した内容がそのまま読み込まれます\n・テンプレート（型）とは別の一覧なので、完成したものだけをすぐに探せます");
+  });
+
   document.getElementById("btnDeleteTpl").addEventListener("click", () => {
     const ids = Object.keys(state.templates);
     if (ids.length <= 1){ showToast("最後の1つのテンプレートは削除できません。", "error"); return; }
@@ -2145,6 +2277,7 @@
     document.getElementById("fontSizeValue").textContent = (state.textFontSize || 13) + "px";
     syncCounts();
     renderTemplateSelect();
+    renderSavedBoardSelect();
     renderSidebar();
     renderAll();
     updateOrientation();
